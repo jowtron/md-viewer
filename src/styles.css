@@ -1,0 +1,226 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Light theme (default) */
+:root {
+  --bg: #ffffff;
+  --text: #1f2328;
+  --toolbar-bg: #f6f8fa;
+  --toolbar-border: #d1d9e0;
+  --filename-color: #656d76;
+  --placeholder-color: #999;
+  --link-color: #0969da;
+  --code-bg: #eff1f3;
+  --pre-bg: #f6f8fa;
+  --border-color: #d1d9e0;
+  --blockquote-color: #656d76;
+  --th-bg: #f6f8fa;
+  --btn-bg: #2da44e;
+  --btn-hover: #218838;
+  --drag-bg: #f0f7ff;
+  --drag-outline: #0969da;
+  --toggle-color: #656d76;
+}
+
+/* Dark theme — matches macOS system dark colors */
+[data-theme="dark"] {
+  --bg: #1e1e1e;
+  --text: #d4d4d4;
+  --toolbar-bg: #2a2a2a;
+  --toolbar-border: #3a3a3a;
+  --filename-color: #999;
+  --placeholder-color: #666;
+  --link-color: #6cb6ff;
+  --code-bg: #2a2a2a;
+  --pre-bg: #252525;
+  --border-color: #3a3a3a;
+  --blockquote-color: #999;
+  --th-bg: #252525;
+  --btn-bg: #347d39;
+  --btn-hover: #3e8e41;
+  --drag-bg: #1a2a3a;
+  --drag-outline: #6cb6ff;
+  --toggle-color: #999;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.toolbar button {
+  padding: 6px 16px;
+  background: var(--btn-bg);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  background: var(--btn-hover);
+}
+
+.zoom-btn {
+  background: none !important;
+  color: var(--toggle-color);
+  padding: 2px 8px !important;
+  font-size: 16px;
+  font-weight: bold;
+  min-width: 28px;
+}
+
+.zoom-btn:hover {
+  background: none !important;
+  color: var(--text);
+}
+
+#theme-toggle {
+  background: none;
+  color: var(--toggle-color);
+  padding: 4px 8px;
+  font-size: 16px;
+}
+
+#theme-toggle:hover {
+  background: none;
+  color: var(--text);
+}
+
+#filename {
+  font-size: 13px;
+  color: var(--filename-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#zoom-level {
+  font-size: 13px;
+  color: var(--filename-color);
+}
+
+#content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px 32px;
+  width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.placeholder {
+  color: var(--placeholder-color);
+  text-align: center;
+  margin-top: 40vh;
+  font-size: 16px;
+}
+
+body.drag-over #content {
+  background: var(--drag-bg);
+  outline: 2px dashed var(--drag-outline);
+  outline-offset: -8px;
+}
+
+/* GitHub-like markdown styles */
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-body h1 { font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+.markdown-body h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+.markdown-body h3 { font-size: 1.25em; }
+
+.markdown-body p { margin-bottom: 16px; line-height: 1.6; }
+
+.markdown-body a { color: var(--link-color); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  background: var(--code-bg);
+  border-radius: 6px;
+  font-size: 85%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+.markdown-body pre {
+  padding: 16px;
+  background: var(--pre-bg);
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+  font-size: 85%;
+}
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--blockquote-color);
+  border-left: 0.25em solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.markdown-body ul, .markdown-body ol {
+  padding-left: 2em;
+  margin-bottom: 16px;
+}
+
+.markdown-body li { margin-bottom: 4px; line-height: 1.6; }
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.markdown-body th, .markdown-body td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-color);
+}
+
+.markdown-body th {
+  font-weight: 600;
+  background: var(--th-bg);
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 24px 0;
+}
