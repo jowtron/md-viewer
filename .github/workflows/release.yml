@@ -9,25 +9,23 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  release:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            rust_target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust_target: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ''
-            rust_target: ''
-          - platform: windows-latest
-            args: ''
-            rust_target: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -35,20 +33,26 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_target }}
+          targets: ${{ matrix.target }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libglib2.0-dev
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install frontend dependencies
+      - name: Install npm dependencies
         run: npm install
 
       - name: Build Tauri app
@@ -58,7 +62,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'MD Viewer ${{ github.ref_name }}'
-          releaseBody: 'Cross-platform markdown viewer built with Tauri.'
+          releaseBody: 'Cross-platform markdown viewer built with Tauri v2'
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
