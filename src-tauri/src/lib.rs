@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, RunEvent};
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
+use tauri::Emitter;
 
 // Global static to capture file path from Opened event (fires before setup)
 static OPENED_FILE: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
@@ -110,23 +112,25 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
+    #[cfg(target_os = "macos")]
     app.run(|app_handle, event| {
         if let RunEvent::Opened { urls } = event {
             for url in urls {
-                let path_string = if url.scheme() == "file" {
-                    url.to_file_path().ok().and_then(|p| p.to_str().map(|s| s.to_string()))
+                let path_string: Option<String> = if url.scheme() == "file" {
+                    url.to_file_path()
+                        .ok()
+                        .and_then(|p: std::path::PathBuf| p.to_str().map(|s: &str| s.to_string()))
                 } else {
-                    // Maybe the URL string itself is a path
                     Some(url.to_string())
                 };
-
                 if let Some(path) = path_string {
-                    // Store in global state
                     *get_opened_mutex().lock().unwrap() = Some(path.clone());
-                    // Also try to emit to frontend
                     let _ = app_handle.emit("open-file-path", &path);
                 }
             }
         }
     });
+
+    #[cfg(not(target_os = "macos"))]
+    app.run(|_app_handle, _event| {});
 }
