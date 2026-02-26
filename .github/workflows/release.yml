@@ -41,10 +41,16 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build -- --target ${{ matrix.target }}
 
+      - name: Compress app bundle
+        run: |
+          cd src-tauri/target/release/bundle/macos
+          tar -czf ../../../md-viewer-${{ matrix.target }}.app.tar.gz md-viewer.app
+          cd ../../../../
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
-          files: src-tauri/target/release/bundle/dmg/*.dmg
+          files: src-tauri/target/release/md-viewer-${{ matrix.target }}.app.tar.gz
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,11 +90,11 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Upload to Release
+      - name: Upload to Release (deb)
         uses: softprops/action-gh-release@v1
         with:
           files: src-tauri/target/release/bundle/deb/*.deb
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -116,10 +122,10 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Upload to Release
+      - name: Upload to Release (msi)
         uses: softprops/action-gh-release@v1
         with:
           files: src-tauri/target/release/bundle/msi/*.msi
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
