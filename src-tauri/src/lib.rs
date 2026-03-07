@@ -1,31 +1,73 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 #[cfg(target_os = "macos")]
 use tauri::RunEvent;
-use tauri::Emitter;
+use tauri::{Emitter, WebviewWindowBuilder};
 
 // Global static to capture file path from Opened event (fires before setup)
 static OPENED_FILE: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
+// Per-window pending files for new windows
+static PENDING_FILES: std::sync::OnceLock<Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+// Tracks whether the main window has finished initial load
+static MAIN_WINDOW_READY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+// Counter for unique window labels
+static WINDOW_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn get_opened_mutex() -> &'static Mutex<Option<String>> {
     OPENED_FILE.get_or_init(|| Mutex::new(None))
 }
 
+fn get_pending_mutex() -> &'static Mutex<HashMap<String, String>> {
+    PENDING_FILES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[tauri::command]
-fn get_opened_file() -> Option<String> {
-    get_opened_mutex().lock().unwrap().take()
+fn get_opened_file(window: tauri::Window) -> Option<String> {
+    let label = window.label().to_string();
+    if label == "main" {
+        MAIN_WINDOW_READY.store(true, std::sync::atomic::Ordering::SeqCst);
+        get_opened_mutex().lock().unwrap().take()
+    } else {
+        get_pending_mutex().lock().unwrap().remove(&label)
+    }
+}
+
+fn create_file_window(app: &tauri::AppHandle, path: &str) -> Result<(), String> {
+    let id = WINDOW_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let label = format!("md-{}", id);
+
+    get_pending_mutex()
+        .lock()
+        .unwrap()
+        .insert(label.clone(), path.to_string());
+
+    WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("/index.html".into()))
+        .title(path)
+        .inner_size(900.0, 700.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_in_new_window(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    create_file_window(&app, &path)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize the global before anything else
+    // Initialize the globals before anything else
     let _ = get_opened_mutex();
+    let _ = get_pending_mutex();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_opened_file])
+        .invoke_handler(tauri::generate_handler![get_opened_file, open_in_new_window])
         .setup(|app| {
             // macOS: first submenu becomes the app menu
             let app_menu = SubmenuBuilder::new(app, "md-viewer")
@@ -42,8 +84,13 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
 
+            let save_as_item = MenuItemBuilder::with_id("save-as", "Save As…")
+                .accelerator("CmdOrCtrl+S")
+                .build(app)?;
+
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_item)
+                .item(&save_as_item)
                 .separator()
                 .close_window()
                 .build()?;
@@ -68,9 +115,10 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+0")
                 .build(app)?;
 
-            let toggle_theme_item = MenuItemBuilder::with_id("toggle-theme", "Toggle Dark Mode")
-                .accelerator("CmdOrCtrl+Shift+T")
-                .build(app)?;
+            let toggle_theme_item =
+                MenuItemBuilder::with_id("toggle-theme", "Toggle Dark Mode")
+                    .accelerator("CmdOrCtrl+Shift+T")
+                    .build(app)?;
 
             let view_menu = SubmenuBuilder::new(app, "View")
                 .item(&zoom_in_item)
@@ -90,6 +138,9 @@ pub fn run() {
                 match event.id().0.as_str() {
                     "open-file" => {
                         let _ = app_handle.emit("menu-open-file", ());
+                    }
+                    "save-as" => {
+                        let _ = app_handle.emit("menu-save-as", ());
                     }
                     "zoom-in" => {
                         let _ = app_handle.emit("menu-zoom", "in");
@@ -124,8 +175,13 @@ pub fn run() {
                     Some(url.to_string())
                 };
                 if let Some(path) = path_string {
-                    *get_opened_mutex().lock().unwrap() = Some(path.clone());
-                    let _ = app_handle.emit("open-file-path", &path);
+                    if MAIN_WINDOW_READY.load(std::sync::atomic::Ordering::SeqCst) {
+                        // App is running, open in a new window
+                        let _ = create_file_window(app_handle, &path);
+                    } else {
+                        // App is starting up, store for main window
+                        *get_opened_mutex().lock().unwrap() = Some(path);
+                    }
                 }
             }
         }

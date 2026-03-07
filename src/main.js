@@ -3,9 +3,13 @@ import { Marked } from "./marked.esm.js";
 const marked = new Marked();
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
+const currentWindow = window.__TAURI__.window.getCurrentWindow();
 
 const contentEl = () => document.getElementById("content");
 const filenameEl = () => document.getElementById("filename");
+
+let currentFilePath = null;
+let currentRawText = null;
 
 // Theme: follow system unless user has manually overridden
 let userOverride = localStorage.getItem("themeOverride") === "true";
@@ -47,12 +51,26 @@ async function openFile(path) {
       options: {},
     });
     const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+    currentRawText = text;
+    currentFilePath = path;
     contentEl().innerHTML = marked.parse(text);
     filenameEl().textContent = String(path).split("/").pop();
+    await currentWindow.setTitle(path);
+    updateSaveButton();
   } catch (e) {
     console.error("Error:", e);
     contentEl().innerHTML = `<p class="placeholder">Error: ${e}</p>`;
   }
+}
+
+function updateSaveButton() {
+  const btn = document.getElementById("save-btn");
+  if (btn) btn.disabled = !currentRawText;
+}
+
+// Open a file in a new window via Rust command
+async function openFileInNewWindow(path) {
+  await invoke("open_in_new_window", { path });
 }
 
 // Open file dialog
@@ -67,9 +85,38 @@ async function openFileDialog() {
     });
     if (!selected) return;
     const path = typeof selected === "string" ? selected : selected.path || selected;
-    await openFile(path);
+    if (currentFilePath) {
+      await openFileInNewWindow(path);
+    } else {
+      await openFile(path);
+    }
   } catch (e) {
     console.error("Error:", e);
+  }
+}
+
+// Save As
+async function saveFileAs() {
+  if (!currentRawText) return;
+  try {
+    const path = await invoke("plugin:dialog|save", {
+      options: {
+        filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+        defaultPath: currentFilePath || undefined,
+      },
+    });
+    if (!path) return;
+    const savePath = typeof path === "string" ? path : path.path || path;
+    await invoke("plugin:fs|write_text_file", {
+      path: savePath,
+      contents: currentRawText,
+      options: {},
+    });
+    currentFilePath = savePath;
+    filenameEl().textContent = String(savePath).split("/").pop();
+    await currentWindow.setTitle(savePath);
+  } catch (e) {
+    console.error("Save error:", e);
   }
 }
 
@@ -92,6 +139,7 @@ window.addEventListener("keydown", (e) => {
 
 // Listen for menu events from Rust
 listen("menu-open-file", () => openFileDialog());
+listen("menu-save-as", () => saveFileAs());
 listen("menu-zoom", (event) => {
   if (event.payload === "in") zoomIn();
   else if (event.payload === "out") zoomOut();
@@ -107,9 +155,15 @@ listen("open-file-path", (event) => {
 listen("tauri://drag-drop", (event) => {
   document.body.classList.remove("drag-over");
   if (event.payload && event.payload.paths && event.payload.paths.length > 0) {
-    const path = event.payload.paths[0];
-    if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
-      openFile(path);
+    const paths = event.payload.paths.filter(p => /\.(md|markdown|mdx|txt)$/i.test(p));
+    if (paths.length === 0) return;
+    if (currentFilePath) {
+      // Current window already has a file, open all in new windows
+      paths.forEach(p => openFileInNewWindow(p));
+    } else {
+      // Load first file here, rest in new windows
+      openFile(paths[0]);
+      paths.slice(1).forEach(p => openFileInNewWindow(p));
     }
   }
 });
@@ -142,10 +196,12 @@ listen("menu-toggle-theme", () => toggleTheme());
 // Button click + check for file opened via Finder on launch
 window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("open-btn").addEventListener("click", openFileDialog);
+  document.getElementById("save-btn").addEventListener("click", saveFileAs);
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   document.getElementById("zoom-in-btn").addEventListener("click", zoomIn);
   document.getElementById("zoom-out-btn").addEventListener("click", zoomOut);
   applyTheme();
+  updateSaveButton();
 
   // Check immediately, then retry after delays to catch late-arriving Opened events
   if (!await checkPendingFile()) {

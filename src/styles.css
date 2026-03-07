@@ -81,6 +81,15 @@ body {
   background: var(--btn-hover);
 }
 
+.toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toolbar button:disabled:hover {
+  background: var(--btn-bg);
+}
+
 .zoom-btn {
   background: none !important;
   color: var(--toggle-color);

@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for all windows",
   "windows": [
-    "main"
+    "main",
+    "md-*"
   ],
   "permissions": [
     "core:default",
@@ -13,6 +14,11 @@
     {
       "identifier": "fs:allow-read-text-file",
       "allow": [{ "path": "**" }]
-    }
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "**" }]
+    },
+    "core:window:allow-set-title"
   ]
 }
