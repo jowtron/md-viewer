@@ -43,9 +43,11 @@ fn create_file_window(app: &tauri::AppHandle, path: &str) -> Result<(), String> 
         .unwrap()
         .insert(label.clone(), path.to_string());
 
+    let offset = (id % 20) as f64 * 26.0;
     WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("/index.html".into()))
         .title(path)
         .inner_size(900.0, 700.0)
+        .position(100.0 + offset, 100.0 + offset)
         .build()
         .map_err(|e| e.to_string())?;
 

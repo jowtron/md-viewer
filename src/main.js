@@ -1,6 +1,6 @@
 import { Marked } from "./marked.esm.js";
 
-const marked = new Marked();
+const marked = new Marked({ gfm: true, breaks: true });
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
@@ -54,14 +54,85 @@ async function openFile(path) {
     currentRawText = text;
     currentFilePath = path;
     contentEl().innerHTML = marked.parse(text);
+    // Make bare URLs clickable even inside <code> spans
+    linkifyTextNodes(contentEl());
     filenameEl().textContent = String(path).split("/").pop();
     await currentWindow.setTitle(path);
     updateSaveButton();
+    await autoResizeWidth();
   } catch (e) {
     console.error("Error:", e);
     contentEl().innerHTML = `<p class="placeholder">Error: ${e}</p>`;
   }
 }
+
+// Auto-resize window width to fit content, keeping it on screen
+async function autoResizeWidth() {
+  const content = contentEl();
+  const needed = content.scrollWidth + (window.innerWidth - content.clientWidth) + 2;
+  const screenW = window.screen.availWidth;
+  const screenLeft = window.screen.availLeft || 0;
+  const maxWidth = Math.min(screenW - 50, 1800);
+  const newWidth = Math.max(900, Math.min(needed, maxWidth));
+  const currentWidth = window.innerWidth;
+  if (newWidth > currentWidth) {
+    const scale = window.devicePixelRatio || 1;
+    const outerSize = await currentWindow.outerSize();
+    const outerPos = await currentWindow.outerPosition();
+    const outerHeight = Math.round(outerSize.height / scale);
+    const extraWidth = Math.round(outerSize.width / scale) - currentWidth;
+    const totalWidth = newWidth + extraWidth;
+    const LogicalSize = window.__TAURI__.dpi.LogicalSize;
+    const LogicalPosition = window.__TAURI__.dpi.LogicalPosition;
+    await currentWindow.setSize(new LogicalSize(totalWidth, outerHeight));
+    // Shift left if the window would go off the right edge
+    const posX = Math.round(outerPos.x / scale);
+    const posY = Math.round(outerPos.y / scale);
+    const rightEdge = posX + totalWidth;
+    const screenRight = screenLeft + screenW;
+    if (rightEdge > screenRight) {
+      const newX = Math.max(screenLeft, screenRight - totalWidth);
+      await currentWindow.setPosition(new LogicalPosition(newX, posY));
+    }
+  }
+}
+
+// Walk DOM text nodes and wrap bare URLs in <a> tags
+const urlRe = /(https?:\/\/[^\s<>"'`)\]]+)/g;
+function linkifyTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    if (node.parentElement && node.parentElement.tagName === "A") continue;
+    if (!urlRe.test(node.textContent)) continue;
+    urlRe.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let match;
+    while ((match = urlRe.exec(node.textContent)) !== null) {
+      if (match.index > last) frag.appendChild(document.createTextNode(node.textContent.slice(last, match.index)));
+      const a = document.createElement("a");
+      a.href = match[1];
+      a.textContent = match[1];
+      frag.appendChild(a);
+      last = match.index + match[0].length;
+    }
+    if (last < node.textContent.length) frag.appendChild(document.createTextNode(node.textContent.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+// Open links in external browser
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href]");
+  if (!a) return;
+  const href = a.getAttribute("href");
+  if (href && /^https?:\/\//.test(href)) {
+    e.preventDefault();
+    invoke("plugin:opener|open_url", { url: href });
+  }
+});
 
 function updateSaveButton() {
   const btn = document.getElementById("save-btn");

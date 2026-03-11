@@ -132,7 +132,7 @@ body {
 #content {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding: 24px 32px;
   width: 100%;
   word-wrap: break-word;
