@@ -59,6 +59,16 @@ fn open_in_new_window(app: tauri::AppHandle, path: String) -> Result<(), String>
     create_file_window(&app, &path)
 }
 
+#[tauri::command]
+fn read_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
+}
+
+#[tauri::command]
+fn write_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, &contents).map_err(|e| format!("Failed to write {}: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize the globals before anything else
@@ -69,7 +79,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_opened_file, open_in_new_window])
+        .invoke_handler(tauri::generate_handler![get_opened_file, open_in_new_window, read_file, write_file])
         .setup(|app| {
             // macOS: first submenu becomes the app menu
             let app_menu = SubmenuBuilder::new(app, "md-viewer")

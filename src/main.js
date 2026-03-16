@@ -46,11 +46,7 @@ applyTheme();
 // Load and render a markdown file by path
 async function openFile(path) {
   try {
-    const data = await invoke("plugin:fs|read_text_file", {
-      path: path,
-      options: {},
-    });
-    const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+    const text = await invoke("read_file", { path: path });
     currentRawText = text;
     currentFilePath = path;
     contentEl().innerHTML = marked.parse(text);
@@ -178,11 +174,7 @@ async function saveFileAs() {
     });
     if (!path) return;
     const savePath = typeof path === "string" ? path : path.path || path;
-    await invoke("plugin:fs|write_text_file", {
-      path: savePath,
-      contents: currentRawText,
-      options: {},
-    });
+    await invoke("write_file", { path: savePath, contents: currentRawText });
     currentFilePath = savePath;
     filenameEl().textContent = String(savePath).split("/").pop();
     await currentWindow.setTitle(savePath);
