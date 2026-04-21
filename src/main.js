@@ -43,8 +43,10 @@ function renderPreview(text) {
     const line = idx >= 0 ? text.slice(0, idx).split("\n").length : 1;
     if (idx >= 0) cursor = idx + tok.raw.length;
     if (tok.type === "space") continue;
+    const newlines = (tok.raw.match(/\n/g) || []).length;
+    const endLine = line + newlines - (tok.raw.endsWith("\n") ? 1 : 0);
     const inner = marked.parser([tok]);
-    parts.push(`<section data-source-line="${line}">${inner}</section>`);
+    parts.push(`<section data-source-line="${line}" data-source-end-line="${endLine}">${inner}</section>`);
   }
   content.innerHTML = parts.join("");
   linkifyTextNodes(content);
@@ -369,30 +371,62 @@ function fractionalLineAtEditorTop() {
   } catch { return 1; }
 }
 
-// Fractional source-line position at the top of the preview viewport,
-// interpolating within each section so the value changes smoothly as the user scrolls.
-function fractionalLineAtPreviewTop() {
+// Build piecewise-linear (sourceLine ↔ previewPixel) anchor list.
+// Each section contributes two anchors — its top (startLine) and its bottom (endLine + 1).
+// Blank lines between sections get their own interpolation slope across the CSS gap.
+function buildPreviewAnchors() {
   const preview = contentEl();
   const sections = preview.querySelectorAll("[data-source-line]");
-  if (sections.length === 0) return 1;
+  if (sections.length === 0) return [];
   const prevTop = preview.getBoundingClientRect().top;
   const scrollTop = preview.scrollTop;
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
+  const anchors = [];
+  for (const sec of sections) {
     const r = sec.getBoundingClientRect();
-    const secTopAbs = r.top - prevTop + scrollTop;
-    const secHeight = r.height;
-    if (secTopAbs + secHeight > scrollTop) {
-      const secLine = parseInt(sec.dataset.sourceLine, 10);
-      const nextLine = i + 1 < sections.length
-        ? parseInt(sections[i + 1].dataset.sourceLine, 10)
-        : secLine + 1;
-      const range = Math.max(1, nextLine - secLine);
-      const frac = secHeight > 0 ? (scrollTop - secTopAbs) / secHeight : 0;
-      return secLine + Math.max(0, Math.min(1, frac)) * range;
-    }
+    const secTop = r.top - prevTop + scrollTop;
+    const secBottom = secTop + r.height;
+    const start = parseInt(sec.dataset.sourceLine, 10);
+    const end = parseInt(sec.dataset.sourceEndLine, 10);
+    anchors.push({ line: start, y: secTop });
+    anchors.push({ line: end + 1, y: secBottom });
   }
-  return 1;
+  return anchors;
+}
+
+function anchorsLineToY(anchors, L) {
+  if (anchors.length === 0) return 0;
+  if (L <= anchors[0].line) return anchors[0].y;
+  const last = anchors[anchors.length - 1];
+  if (L >= last.line) return last.y;
+  // Find first j where anchors[j].line > L (strict). Bracket is [j-1, j].
+  let j = 0;
+  while (j < anchors.length && anchors[j].line <= L) j++;
+  if (j === 0) return anchors[0].y;
+  if (j >= anchors.length) return last.y;
+  const a = anchors[j - 1], b = anchors[j];
+  if (b.line === a.line) return b.y;
+  const t = (L - a.line) / (b.line - a.line);
+  return a.y + t * (b.y - a.y);
+}
+
+function anchorsYToLine(anchors, y) {
+  if (anchors.length === 0) return 1;
+  if (y <= anchors[0].y) return anchors[0].line;
+  const last = anchors[anchors.length - 1];
+  if (y >= last.y) return last.line;
+  let j = 0;
+  while (j < anchors.length && anchors[j].y <= y) j++;
+  if (j === 0) return anchors[0].line;
+  if (j >= anchors.length) return last.line;
+  const a = anchors[j - 1], b = anchors[j];
+  if (b.y === a.y) return b.line;
+  const t = (y - a.y) / (b.y - a.y);
+  return a.line + t * (b.line - a.line);
+}
+
+// Fractional source-line position at the top of the preview viewport.
+function fractionalLineAtPreviewTop() {
+  return anchorsYToLine(buildPreviewAnchors(), contentEl().scrollTop);
 }
 
 function scrollEditorToFractionalLine(lineFloat) {
@@ -408,24 +442,9 @@ function scrollEditorToFractionalLine(lineFloat) {
 
 function scrollPreviewToFractionalLine(lineFloat) {
   const preview = contentEl();
-  const sections = preview.querySelectorAll("[data-source-line]");
-  if (sections.length === 0) return;
-  const line = Math.floor(lineFloat);
-  // Find the section containing `line` (largest data-source-line ≤ line)
-  let i = 0;
-  while (i + 1 < sections.length && parseInt(sections[i + 1].dataset.sourceLine, 10) <= line) i++;
-  const sec = sections[i];
-  const secLine = parseInt(sec.dataset.sourceLine, 10);
-  const nextLine = i + 1 < sections.length
-    ? parseInt(sections[i + 1].dataset.sourceLine, 10)
-    : secLine + 1;
-  const range = Math.max(1, nextLine - secLine);
-  const frac = Math.max(0, Math.min(1, (lineFloat - secLine) / range));
-
-  const prevRect = preview.getBoundingClientRect();
-  const secRect = sec.getBoundingClientRect();
-  const secTopAbs = secRect.top - prevRect.top + preview.scrollTop;
-  preview.scrollTop = secTopAbs + frac * secRect.height;
+  const anchors = buildPreviewAnchors();
+  if (anchors.length === 0) return;
+  preview.scrollTop = anchorsLineToY(anchors, lineFloat);
 }
 
 function captureSourceLine() {
@@ -491,6 +510,61 @@ function setupSplitter() {
 let scrollDriver = null; // 'editor' | 'preview' | null
 let syncingScroll = false; // used by restoreScrollRatio for one-shot programmatic moves
 
+// Build paired editor/preview pixel bounds per section. Within a section, editor-pixel
+// fraction maps directly to preview-pixel fraction — so a long wrapped source line in
+// the editor no longer stalls the preview before snapping ahead at the next line boundary.
+function buildSectionPairs() {
+  const preview = contentEl();
+  const sections = preview.querySelectorAll("[data-source-line]");
+  if (sections.length === 0 || !editorView) return [];
+  const prevRect = preview.getBoundingClientRect();
+  const prevScroll = preview.scrollTop;
+  const doc = editorView.state.doc;
+  const pairs = [];
+  for (const sec of sections) {
+    const start = Math.max(1, Math.min(parseInt(sec.dataset.sourceLine, 10), doc.lines));
+    const end = Math.max(start, Math.min(parseInt(sec.dataset.sourceEndLine, 10), doc.lines));
+    const r = sec.getBoundingClientRect();
+    const pTop = r.top - prevRect.top + prevScroll;
+    const pBottom = pTop + r.height;
+    let eTop = 0, eBottom = 0;
+    try {
+      const startBlock = editorView.lineBlockAt(doc.line(start).from);
+      const endBlock = editorView.lineBlockAt(doc.line(end).from);
+      eTop = startBlock.top;
+      eBottom = endBlock.bottom;
+    } catch { continue; }
+    pairs.push({ eTop, eBottom, pTop, pBottom });
+  }
+  return pairs;
+}
+
+// Map editor scrollTop → preview scrollTop using section pairs.
+// Inside a section: linear pixel-fraction. Between sections: linear over the gap.
+function mapY(pairs, y, srcKey, srcEndKey, dstKey, dstEndKey) {
+  if (pairs.length === 0) return 0;
+  if (y <= pairs[0][srcKey]) return pairs[0][dstKey];
+  const last = pairs[pairs.length - 1];
+  if (y >= last[srcEndKey]) return last[dstEndKey];
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i];
+    if (y >= p[srcKey] && y <= p[srcEndKey]) {
+      const span = Math.max(1, p[srcEndKey] - p[srcKey]);
+      const t = (y - p[srcKey]) / span;
+      return p[dstKey] + t * (p[dstEndKey] - p[dstKey]);
+    }
+    if (i + 1 < pairs.length) {
+      const n = pairs[i + 1];
+      if (y > p[srcEndKey] && y < n[srcKey]) {
+        const span = Math.max(1, n[srcKey] - p[srcEndKey]);
+        const t = (y - p[srcEndKey]) / span;
+        return p[dstEndKey] + t * (n[dstKey] - p[dstEndKey]);
+      }
+    }
+  }
+  return last[dstEndKey];
+}
+
 function setupSyncedScroll() {
   if (!editorView) return;
   const scroller = editorView.scrollDOM;
@@ -509,11 +583,13 @@ function setupSyncedScroll() {
 
   scroller.addEventListener("scroll", () => {
     if (syncingScroll || viewMode !== "split" || scrollDriver !== "editor") return;
-    scrollPreviewToFractionalLine(fractionalLineAtEditorTop());
+    const pairs = buildSectionPairs();
+    preview.scrollTop = mapY(pairs, scroller.scrollTop, "eTop", "eBottom", "pTop", "pBottom");
   });
   preview.addEventListener("scroll", () => {
     if (syncingScroll || viewMode !== "split" || scrollDriver !== "preview") return;
-    scrollEditorToFractionalLine(fractionalLineAtPreviewTop());
+    const pairs = buildSectionPairs();
+    scroller.scrollTop = mapY(pairs, preview.scrollTop, "pTop", "pBottom", "eTop", "eBottom");
   });
 }
 
