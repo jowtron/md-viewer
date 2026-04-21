@@ -1,5 +1,20 @@
 # Development Notes
 
+## CodeMirror bundle
+
+The editor uses CodeMirror 6, bundled into a single vendored file at
+`src/codemirror.bundle.js` (loaded as a static module like `marked.esm.js`).
+
+The project ships `src/` as-is — there's no runtime bundler — so the bundle
+must be rebuilt whenever `cm-entry.js` or its CodeMirror deps change:
+
+```sh
+npm install        # once
+npm run build:cm   # after editing cm-entry.js
+```
+
+The bundle exposes CodeMirror APIs on `window.CM`, consumed by `src/main.js`.
+
 ## CI / Cross-Platform Build Issues
 
 ### Problem 1: `RunEvent::Opened` is macOS-only

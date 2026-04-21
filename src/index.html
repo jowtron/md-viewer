@@ -6,30 +6,41 @@
     <title>MD Viewer</title>
     <link rel="stylesheet" href="styles.css" />
     <script>
-      // Apply theme immediately to prevent flash
-      (function() {
-        var userOverride = localStorage.getItem("themeOverride") === "true";
-        var theme = userOverride
-          ? (localStorage.getItem("theme") || "light")
-          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        document.documentElement.setAttribute("data-theme", theme);
-      })();
+      // Apply system theme immediately to prevent flash
+      document.documentElement.setAttribute(
+        "data-theme",
+        window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+      );
     </script>
+    <script type="module" src="/codemirror.bundle.js" defer></script>
     <script type="module" src="/main.js" defer></script>
   </head>
   <body>
     <div class="toolbar">
       <button id="open-btn">Open File</button>
-      <button id="save-btn" disabled>Save As</button>
+      <button id="save-btn" disabled>Save</button>
+      <button id="mode-btn" class="mode-btn" title="Toggle view mode (Cmd+E)">Preview</button>
       <span id="filename"></span>
       <span style="margin-left:auto"></span>
       <button id="zoom-out-btn" class="zoom-btn" title="Zoom out">−</button>
       <span id="zoom-level">100%</span>
       <button id="zoom-in-btn" class="zoom-btn" title="Zoom in">+</button>
-      <button id="theme-toggle" title="Toggle dark mode"></button>
     </div>
-    <div id="content" class="markdown-body">
-      <p class="placeholder">Open a Markdown file to get started.</p>
+    <div id="search-bar" hidden>
+      <input id="search-input" type="text" placeholder="Find in document…" autocomplete="off" spellcheck="false" />
+      <button id="search-case" class="search-toggle" title="Match case">Aa</button>
+      <button id="search-regex" class="search-toggle" title="Regular expression">.*</button>
+      <span id="search-count">0/0</span>
+      <button id="search-prev" title="Previous match (Shift+Enter)">▲</button>
+      <button id="search-next" title="Next match (Enter)">▼</button>
+      <button id="search-close" title="Close (Esc)">✕</button>
+    </div>
+    <div id="workspace" data-mode="preview">
+      <div id="editor-pane"></div>
+      <div id="splitter"></div>
+      <div id="content" class="markdown-body">
+        <p class="placeholder">Open a Markdown file to get started.</p>
+      </div>
     </div>
   </body>
 </html>

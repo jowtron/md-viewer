@@ -96,13 +96,24 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
 
-            let save_as_item = MenuItemBuilder::with_id("save-as", "Save As…")
+            let save_item = MenuItemBuilder::with_id("save", "Save")
                 .accelerator("CmdOrCtrl+S")
+                .build(app)?;
+
+            let save_as_item = MenuItemBuilder::with_id("save-as", "Save As…")
+                .accelerator("CmdOrCtrl+Shift+S")
+                .build(app)?;
+
+            let print_item = MenuItemBuilder::with_id("print", "Print…")
+                .accelerator("CmdOrCtrl+P")
                 .build(app)?;
 
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_item)
+                .item(&save_item)
                 .item(&save_as_item)
+                .separator()
+                .item(&print_item)
                 .separator()
                 .close_window()
                 .build()?;
@@ -127,17 +138,10 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+0")
                 .build(app)?;
 
-            let toggle_theme_item =
-                MenuItemBuilder::with_id("toggle-theme", "Toggle Dark Mode")
-                    .accelerator("CmdOrCtrl+Shift+T")
-                    .build(app)?;
-
             let view_menu = SubmenuBuilder::new(app, "View")
                 .item(&zoom_in_item)
                 .item(&zoom_out_item)
                 .item(&zoom_reset_item)
-                .separator()
-                .item(&toggle_theme_item)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
@@ -151,8 +155,14 @@ pub fn run() {
                     "open-file" => {
                         let _ = app_handle.emit("menu-open-file", ());
                     }
+                    "save" => {
+                        let _ = app_handle.emit("menu-save", ());
+                    }
                     "save-as" => {
                         let _ = app_handle.emit("menu-save-as", ());
+                    }
+                    "print" => {
+                        let _ = app_handle.emit("menu-print", ());
                     }
                     "zoom-in" => {
                         let _ = app_handle.emit("menu-zoom", "in");
@@ -162,9 +172,6 @@ pub fn run() {
                     }
                     "zoom-reset" => {
                         let _ = app_handle.emit("menu-zoom", "reset");
-                    }
-                    "toggle-theme" => {
-                        let _ = app_handle.emit("menu-toggle-theme", ());
                     }
                     _ => {}
                 }

@@ -129,14 +129,173 @@ body {
   color: var(--filename-color);
 }
 
+#workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+  --editor-width: 50%;
+}
+
+#editor-pane {
+  display: none;
+  width: var(--editor-width);
+  min-width: 200px;
+  border-right: 1px solid var(--toolbar-border);
+  overflow: hidden;
+}
+
+#editor-pane .cm-editor {
+  height: 100%;
+  font-size: 13px;
+}
+
+#editor-pane .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+#splitter {
+  display: none;
+  width: 6px;
+  cursor: col-resize;
+  background: var(--toolbar-bg);
+  border-left: 1px solid var(--toolbar-border);
+  border-right: 1px solid var(--toolbar-border);
+  flex-shrink: 0;
+}
+
+#splitter:hover, #splitter.dragging {
+  background: var(--drag-outline);
+}
+
 #content {
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
   padding: 24px 32px;
   width: 100%;
+  min-width: 0;
   word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+/* Mode-specific visibility */
+#workspace[data-mode="split"] #editor-pane,
+#workspace[data-mode="editor"] #editor-pane {
+  display: block;
+}
+
+#workspace[data-mode="split"] #splitter {
+  display: block;
+}
+
+#workspace[data-mode="editor"] #editor-pane {
+  width: 100%;
+  border-right: none;
+}
+
+#workspace[data-mode="editor"] #content {
+  display: none;
+}
+
+.mode-btn {
+  background: none !important;
+  color: var(--toggle-color) !important;
+  border: 1px solid var(--toolbar-border) !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.mode-btn:hover {
+  color: var(--text) !important;
+  border-color: var(--text) !important;
+}
+
+/* Search bar */
+#search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+}
+
+#search-bar[hidden] {
+  display: none;
+}
+
+#search-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+#search-input:focus {
+  border-color: var(--drag-outline);
+}
+
+#search-bar button {
+  padding: 4px 8px;
+  background: none;
+  color: var(--toggle-color);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#search-bar button:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.search-toggle.active {
+  background: var(--drag-bg) !important;
+  color: var(--drag-outline) !important;
+  border-color: var(--drag-outline) !important;
+}
+
+#search-count {
+  font-size: 12px;
+  color: var(--filename-color);
+  min-width: 50px;
+  text-align: center;
+}
+
+/* Highlighted matches in preview */
+.markdown-body mark.search-hl {
+  background: #fff3a3;
+  color: inherit;
+  padding: 0;
+}
+
+.markdown-body mark.search-hl.current {
+  background: #ff8c42;
+  color: #fff;
+}
+
+[data-theme="dark"] .markdown-body mark.search-hl {
+  background: #6e5e1e;
+  color: #fff;
+}
+
+[data-theme="dark"] .markdown-body mark.search-hl.current {
+  background: #d97706;
+  color: #fff;
+}
+
+@media print {
+  #search-bar { display: none !important; }
+  .markdown-body mark.search-hl { background: none !important; color: inherit !important; }
 }
 
 .placeholder {
@@ -146,7 +305,7 @@ body {
   font-size: 16px;
 }
 
-body.drag-over #content {
+body.drag-over #workspace {
   background: var(--drag-bg);
   outline: 2px dashed var(--drag-outline);
   outline-offset: -8px;
@@ -232,4 +391,95 @@ body.drag-over #content {
   border: none;
   border-top: 1px solid var(--border-color);
   margin: 24px 0;
+}
+
+/* Print styles — force light theme, hide chrome, paginate cleanly */
+@media print {
+  @page {
+    margin: 2cm;
+  }
+
+  /* Force light colors regardless of theme */
+  :root, [data-theme="dark"] {
+    --bg: #ffffff;
+    --text: #1f2328;
+    --link-color: #0969da;
+    --code-bg: #f0f0f0;
+    --pre-bg: #f6f8fa;
+    --border-color: #d1d9e0;
+    --blockquote-color: #555;
+    --th-bg: #f6f8fa;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #1f2328 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide everything that isn't the rendered content */
+  .toolbar { display: none !important; }
+  #editor-pane, #splitter { display: none !important; }
+  body.drag-over #workspace { background: none !important; outline: none !important; }
+
+  #workspace {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  #content {
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    width: 100% !important;
+    font-size: 11pt;
+  }
+
+  .markdown-body {
+    color: #1f2328 !important;
+  }
+
+  /* Print bare URLs after links so they aren't lost on paper */
+  .markdown-body a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 90%;
+    color: #555;
+    word-break: break-all;
+  }
+
+  /* Avoid orphaned headings and broken blocks */
+  .markdown-body h1, .markdown-body h2, .markdown-body h3,
+  .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .markdown-body pre,
+  .markdown-body blockquote,
+  .markdown-body table,
+  .markdown-body img {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .markdown-body pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    border: 1px solid #d1d9e0;
+  }
+
+  .markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .markdown-body th, .markdown-body td {
+    border: 1px solid #d1d9e0 !important;
+  }
+
+  .markdown-body img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
 }

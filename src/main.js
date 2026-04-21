@@ -10,48 +10,65 @@ const filenameEl = () => document.getElementById("filename");
 
 let currentFilePath = null;
 let currentRawText = null;
+let savedText = null;
+let isDirty = false;
 
-// Theme: follow system unless user has manually overridden
-let userOverride = localStorage.getItem("themeOverride") === "true";
-let themeMode = userOverride
-  ? (localStorage.getItem("theme") || "light")
-  : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+// View mode: "preview" | "split" | "editor"
+let viewMode = localStorage.getItem("viewMode") || "preview";
+let editorView = null; // CodeMirror EditorView instance (created lazily)
+let suppressEditorChange = false; // prevents re-render loops when programmatically updating editor
 
-function applyTheme() {
-  document.documentElement.setAttribute("data-theme", themeMode);
-  const btn = document.getElementById("theme-toggle");
-  if (btn) btn.textContent = themeMode === "dark" ? "\u{2600}\u{FE0F}" : "\u{1F319}";
+// Follow system theme automatically
+function applySystemTheme() {
+  const mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", mode);
 }
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applySystemTheme);
+applySystemTheme();
 
-function toggleTheme() {
-  themeMode = themeMode === "dark" ? "light" : "dark";
-  userOverride = true;
-  localStorage.setItem("theme", themeMode);
-  localStorage.setItem("themeOverride", "true");
-  applyTheme();
+// Render markdown text into the preview pane.
+// Each top-level block is wrapped in <section data-source-line="N"> so mode
+// switches can find "where am I" in terms of the markdown source line.
+function renderPreview(text) {
+  const content = contentEl();
+  if (!text) {
+    content.innerHTML = "";
+    return;
+  }
+  const tokens = marked.lexer(text);
+  let cursor = 0;
+  const parts = [];
+  for (const tok of tokens) {
+    const idx = text.indexOf(tok.raw, cursor);
+    const line = idx >= 0 ? text.slice(0, idx).split("\n").length : 1;
+    if (idx >= 0) cursor = idx + tok.raw.length;
+    if (tok.type === "space") continue;
+    const inner = marked.parser([tok]);
+    parts.push(`<section data-source-line="${line}">${inner}</section>`);
+  }
+  content.innerHTML = parts.join("");
+  linkifyTextNodes(content);
+  if (searchState.query && !document.getElementById("search-bar").hidden) {
+    runSearch();
+  }
 }
-
-// Follow system theme changes (clears manual override)
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-  themeMode = e.matches ? "dark" : "light";
-  userOverride = false;
-  localStorage.removeItem("themeOverride");
-  localStorage.setItem("theme", themeMode);
-  applyTheme();
-});
-
-// Apply theme immediately
-applyTheme();
 
 // Load and render a markdown file by path
 async function openFile(path) {
   try {
     const text = await invoke("read_file", { path: path });
     currentRawText = text;
+    savedText = text;
+    isDirty = false;
     currentFilePath = path;
-    contentEl().innerHTML = marked.parse(text);
-    // Make bare URLs clickable even inside <code> spans
-    linkifyTextNodes(contentEl());
+    renderPreview(text);
+    if (editorView) {
+      suppressEditorChange = true;
+      editorView.dispatch({
+        changes: { from: 0, to: editorView.state.doc.length, insert: text },
+      });
+      suppressEditorChange = false;
+    }
     filenameEl().textContent = String(path).split("/").pop();
     await currentWindow.setTitle(path);
     updateSaveButton();
@@ -60,6 +77,16 @@ async function openFile(path) {
     console.error("Error:", e);
     contentEl().innerHTML = `<p class="placeholder">Error: ${e}</p>`;
   }
+}
+
+// Called from editor onChange — updates buffer + dirty flag, debounce-renders preview
+let renderTimer = null;
+function setBufferText(text) {
+  currentRawText = text;
+  isDirty = savedText !== null && text !== savedText;
+  updateSaveButton();
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => renderPreview(text), 150);
 }
 
 // Auto-resize window width to fit content, keeping it on screen
@@ -132,7 +159,9 @@ document.addEventListener("click", (e) => {
 
 function updateSaveButton() {
   const btn = document.getElementById("save-btn");
-  if (btn) btn.disabled = !currentRawText;
+  if (!btn) return;
+  btn.disabled = !currentRawText;
+  btn.textContent = isDirty ? "Save •" : "Save";
 }
 
 // Open a file in a new window via Rust command
@@ -162,7 +191,21 @@ async function openFileDialog() {
   }
 }
 
-// Save As
+// Save in place (Cmd+S). Falls back to Save As if no file path yet.
+async function saveFile() {
+  if (!currentRawText) return;
+  if (!currentFilePath) return saveFileAs();
+  try {
+    await invoke("write_file", { path: currentFilePath, contents: currentRawText });
+    savedText = currentRawText;
+    isDirty = false;
+    updateSaveButton();
+  } catch (e) {
+    console.error("Save error:", e);
+  }
+}
+
+// Save As (Cmd+Shift+S) — always prompts for path
 async function saveFileAs() {
   if (!currentRawText) return;
   try {
@@ -176,8 +219,11 @@ async function saveFileAs() {
     const savePath = typeof path === "string" ? path : path.path || path;
     await invoke("write_file", { path: savePath, contents: currentRawText });
     currentFilePath = savePath;
+    savedText = currentRawText;
+    isDirty = false;
     filenameEl().textContent = String(savePath).split("/").pop();
     await currentWindow.setTitle(savePath);
+    updateSaveButton();
   } catch (e) {
     console.error("Save error:", e);
   }
@@ -198,11 +244,23 @@ window.addEventListener("keydown", (e) => {
   if (e.metaKey && e.key === "=") { e.preventDefault(); zoomIn(); }
   if (e.metaKey && e.key === "-") { e.preventDefault(); zoomOut(); }
   if (e.metaKey && e.key === "0") { e.preventDefault(); zoomReset(); }
+  if (e.metaKey && e.key === "p") { e.preventDefault(); printDocument(); }
+  if (e.metaKey && e.key === "e") { e.preventDefault(); cycleViewMode(); }
+  if (e.metaKey && e.key === "f") { e.preventDefault(); openSearchBar(); }
 });
+
+function printDocument() {
+  if (!currentRawText) return;
+  clearTimeout(renderTimer);
+  renderPreview(currentRawText);
+  window.print();
+}
 
 // Listen for menu events from Rust
 listen("menu-open-file", () => openFileDialog());
+listen("menu-save", () => saveFile());
 listen("menu-save-as", () => saveFileAs());
+listen("menu-print", () => printDocument());
 listen("menu-zoom", (event) => {
   if (event.payload === "in") zoomIn();
   else if (event.payload === "out") zoomOut();
@@ -253,17 +311,405 @@ async function checkPendingFile() {
   return false;
 }
 
-// Listen for theme toggle from menu
-listen("menu-toggle-theme", () => toggleTheme());
+// === CodeMirror editor ===
+function ensureEditor() {
+  if (editorView) return editorView;
+  const CM = window.CM;
+  if (!CM) { console.error("CodeMirror bundle not loaded"); return null; }
+
+  const updateListener = CM.EditorView.updateListener.of((update) => {
+    if (suppressEditorChange) return;
+    if (update.docChanged) {
+      setBufferText(update.state.doc.toString());
+    }
+  });
+
+  const state = CM.EditorState.create({
+    doc: currentRawText || "",
+    extensions: [
+      CM.lineNumbers(),
+      CM.history(),
+      CM.drawSelection(),
+      CM.indentOnInput(),
+      CM.bracketMatching(),
+      CM.syntaxHighlighting(CM.defaultHighlightStyle, { fallback: true }),
+      CM.markdown(),
+      CM.search({ top: true }),
+      CM.highlightActiveLine(),
+      CM.keymap.of([
+        ...CM.defaultKeymap,
+        ...CM.historyKeymap,
+        ...CM.searchKeymap,
+        CM.indentWithTab,
+      ]),
+      CM.EditorView.lineWrapping,
+      updateListener,
+    ],
+  });
+
+  editorView = new CM.EditorView({
+    state,
+    parent: document.getElementById("editor-pane"),
+  });
+
+  setupSyncedScroll();
+  return editorView;
+}
+
+// Fractional source-line position at the top of the editor viewport.
+// Returns e.g. 47.3 meaning "30% of the way through line 47".
+function fractionalLineAtEditorTop() {
+  if (!editorView) return 1;
+  const top = editorView.scrollDOM.scrollTop;
+  try {
+    const block = editorView.lineBlockAtHeight(top);
+    const lineNum = editorView.state.doc.lineAt(block.from).number;
+    const frac = block.height > 0 ? (top - block.top) / block.height : 0;
+    return lineNum + Math.max(0, Math.min(1, frac));
+  } catch { return 1; }
+}
+
+// Fractional source-line position at the top of the preview viewport,
+// interpolating within each section so the value changes smoothly as the user scrolls.
+function fractionalLineAtPreviewTop() {
+  const preview = contentEl();
+  const sections = preview.querySelectorAll("[data-source-line]");
+  if (sections.length === 0) return 1;
+  const prevTop = preview.getBoundingClientRect().top;
+  const scrollTop = preview.scrollTop;
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    const r = sec.getBoundingClientRect();
+    const secTopAbs = r.top - prevTop + scrollTop;
+    const secHeight = r.height;
+    if (secTopAbs + secHeight > scrollTop) {
+      const secLine = parseInt(sec.dataset.sourceLine, 10);
+      const nextLine = i + 1 < sections.length
+        ? parseInt(sections[i + 1].dataset.sourceLine, 10)
+        : secLine + 1;
+      const range = Math.max(1, nextLine - secLine);
+      const frac = secHeight > 0 ? (scrollTop - secTopAbs) / secHeight : 0;
+      return secLine + Math.max(0, Math.min(1, frac)) * range;
+    }
+  }
+  return 1;
+}
+
+function scrollEditorToFractionalLine(lineFloat) {
+  if (!editorView) return;
+  const doc = editorView.state.doc;
+  const line = Math.max(1, Math.min(Math.floor(lineFloat), doc.lines));
+  try {
+    const block = editorView.lineBlockAt(doc.line(line).from);
+    const frac = Math.max(0, Math.min(1, lineFloat - line));
+    editorView.scrollDOM.scrollTop = block.top + frac * block.height;
+  } catch {}
+}
+
+function scrollPreviewToFractionalLine(lineFloat) {
+  const preview = contentEl();
+  const sections = preview.querySelectorAll("[data-source-line]");
+  if (sections.length === 0) return;
+  const line = Math.floor(lineFloat);
+  // Find the section containing `line` (largest data-source-line ≤ line)
+  let i = 0;
+  while (i + 1 < sections.length && parseInt(sections[i + 1].dataset.sourceLine, 10) <= line) i++;
+  const sec = sections[i];
+  const secLine = parseInt(sec.dataset.sourceLine, 10);
+  const nextLine = i + 1 < sections.length
+    ? parseInt(sections[i + 1].dataset.sourceLine, 10)
+    : secLine + 1;
+  const range = Math.max(1, nextLine - secLine);
+  const frac = Math.max(0, Math.min(1, (lineFloat - secLine) / range));
+
+  const prevRect = preview.getBoundingClientRect();
+  const secRect = sec.getBoundingClientRect();
+  const secTopAbs = secRect.top - prevRect.top + preview.scrollTop;
+  preview.scrollTop = secTopAbs + frac * secRect.height;
+}
+
+function captureSourceLine() {
+  if (editorView && (viewMode === "editor" || viewMode === "split")) return fractionalLineAtEditorTop();
+  return fractionalLineAtPreviewTop();
+}
+
+function restoreSourceLine(lineFloat) {
+  const apply = () => {
+    if (editorView && (viewMode === "editor" || viewMode === "split")) scrollEditorToFractionalLine(lineFloat);
+    if (viewMode !== "editor") scrollPreviewToFractionalLine(lineFloat);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(apply));
+}
+
+function applyViewMode(mode) {
+  const prevLine = captureSourceLine();
+  viewMode = mode;
+  localStorage.setItem("viewMode", mode);
+  document.getElementById("workspace").setAttribute("data-mode", mode);
+  const btn = document.getElementById("mode-btn");
+  if (btn) btn.textContent = mode === "preview" ? "Preview" : mode === "split" ? "Split" : "Editor";
+  if (mode !== "preview") {
+    ensureEditor();
+    setTimeout(() => editorView && editorView.requestMeasure(), 0);
+  }
+  restoreSourceLine(prevLine);
+}
+
+function cycleViewMode() {
+  const next = viewMode === "preview" ? "split" : viewMode === "split" ? "editor" : "preview";
+  applyViewMode(next);
+}
+
+// === Splitter drag ===
+function setupSplitter() {
+  const splitter = document.getElementById("splitter");
+  const workspace = document.getElementById("workspace");
+  if (!splitter || !workspace) return;
+  let dragging = false;
+  splitter.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture(e.pointerId);
+  });
+  splitter.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const rect = workspace.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    const clamped = Math.max(15, Math.min(85, pct));
+    workspace.style.setProperty("--editor-width", clamped + "%");
+  });
+  splitter.addEventListener("pointerup", (e) => {
+    dragging = false;
+    splitter.classList.remove("dragging");
+    splitter.releasePointerCapture(e.pointerId);
+  });
+}
+
+// === Synced scroll between editor and preview ===
+// Track which pane the user is actively driving. Only the driver's scroll events
+// propagate to the other pane; programmatic scrolls on the follower don't echo back.
+let scrollDriver = null; // 'editor' | 'preview' | null
+let syncingScroll = false; // used by restoreScrollRatio for one-shot programmatic moves
+
+function setupSyncedScroll() {
+  if (!editorView) return;
+  const scroller = editorView.scrollDOM;
+  const preview = contentEl();
+
+  const claim = (who) => () => { scrollDriver = who; };
+  const claimEditor = claim("editor");
+  const claimPreview = claim("preview");
+
+  for (const ev of ["wheel", "pointerdown", "keydown", "touchstart"]) {
+    scroller.addEventListener(ev, claimEditor, { passive: true });
+    preview.addEventListener(ev, claimPreview, { passive: true });
+  }
+  scroller.addEventListener("focusin", claimEditor);
+  preview.addEventListener("focusin", claimPreview);
+
+  scroller.addEventListener("scroll", () => {
+    if (syncingScroll || viewMode !== "split" || scrollDriver !== "editor") return;
+    scrollPreviewToFractionalLine(fractionalLineAtEditorTop());
+  });
+  preview.addEventListener("scroll", () => {
+    if (syncingScroll || viewMode !== "split" || scrollDriver !== "preview") return;
+    scrollEditorToFractionalLine(fractionalLineAtPreviewTop());
+  });
+}
+
+// Prompt before closing window with unsaved changes
+currentWindow.onCloseRequested(async (event) => {
+  if (!isDirty) return;
+  event.preventDefault();
+  const choice = await invoke("plugin:dialog|ask", {
+    message: "You have unsaved changes. Save before closing?",
+    title: "Unsaved Changes",
+    kind: "warning",
+    yesButtonLabel: "Save",
+    noButtonLabel: "Discard",
+  });
+  if (choice) {
+    await saveFile();
+    if (isDirty) return; // save failed or was cancelled
+  }
+  isDirty = false;
+  await currentWindow.destroy();
+});
+
+// === Preview-pane search ===
+const searchState = { query: "", caseSensitive: false, regex: false, matches: [], current: -1 };
+
+function clearSearchHighlights() {
+  const marks = contentEl().querySelectorAll("mark.search-hl");
+  marks.forEach((m) => {
+    const parent = m.parentNode;
+    while (m.firstChild) parent.insertBefore(m.firstChild, m);
+    parent.removeChild(m);
+    parent.normalize();
+  });
+  searchState.matches = [];
+  searchState.current = -1;
+}
+
+function buildSearchRegex() {
+  if (!searchState.query) return null;
+  const flags = "g" + (searchState.caseSensitive ? "" : "i");
+  try {
+    return searchState.regex
+      ? new RegExp(searchState.query, flags)
+      : new RegExp(searchState.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+  } catch {
+    return null;
+  }
+}
+
+function runSearch() {
+  clearSearchHighlights();
+  const re = buildSearchRegex();
+  const countEl = document.getElementById("search-count");
+  if (!re) {
+    countEl.textContent = "0/0";
+    return;
+  }
+
+  const walker = document.createTreeWalker(contentEl(), NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      const tag = n.parentElement && n.parentElement.tagName;
+      if (tag === "SCRIPT" || tag === "STYLE") return NodeFilter.FILTER_REJECT;
+      return n.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  for (const node of textNodes) {
+    const text = node.textContent;
+    re.lastIndex = 0;
+    let match;
+    const ranges = [];
+    while ((match = re.exec(text)) !== null) {
+      ranges.push([match.index, match.index + match[0].length]);
+      if (match[0].length === 0) re.lastIndex++;
+    }
+    if (ranges.length === 0) continue;
+
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const [start, end] of ranges) {
+      if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
+      const mark = document.createElement("mark");
+      mark.className = "search-hl";
+      mark.textContent = text.slice(start, end);
+      frag.appendChild(mark);
+      searchState.matches.push(mark);
+      last = end;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+
+  if (searchState.matches.length > 0) {
+    searchState.current = 0;
+    highlightCurrentMatch();
+  }
+  updateSearchCount();
+}
+
+function highlightCurrentMatch() {
+  searchState.matches.forEach((m, i) => m.classList.toggle("current", i === searchState.current));
+  const cur = searchState.matches[searchState.current];
+  if (cur) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function updateSearchCount() {
+  const countEl = document.getElementById("search-count");
+  const n = searchState.matches.length;
+  countEl.textContent = n === 0 ? "0/0" : `${searchState.current + 1}/${n}`;
+}
+
+function nextMatch(dir) {
+  if (searchState.matches.length === 0) return;
+  searchState.current = (searchState.current + dir + searchState.matches.length) % searchState.matches.length;
+  highlightCurrentMatch();
+  updateSearchCount();
+}
+
+function openSearchBar() {
+  // In editor/split mode, hand off to CodeMirror's built-in search if editor is focused
+  if (editorView && (viewMode === "editor" || (viewMode === "split" && editorView.hasFocus))) {
+    const CM = window.CM;
+    if (CM && CM.openSearchPanel) {
+      editorView.focus();
+      CM.openSearchPanel(editorView);
+      return;
+    }
+  }
+  if (viewMode === "editor") {
+    // No preview to search; fall back to opening editor's search
+    if (editorView && window.CM) {
+      editorView.focus();
+      window.CM.openSearchPanel(editorView);
+    }
+    return;
+  }
+  const bar = document.getElementById("search-bar");
+  bar.hidden = false;
+  const input = document.getElementById("search-input");
+  input.focus();
+  input.select();
+}
+
+function closeSearchBar() {
+  document.getElementById("search-bar").hidden = true;
+  clearSearchHighlights();
+  searchState.query = "";
+  document.getElementById("search-input").value = "";
+}
+
+function setupSearch() {
+  const input = document.getElementById("search-input");
+  const caseBtn = document.getElementById("search-case");
+  const regexBtn = document.getElementById("search-regex");
+
+  input.addEventListener("input", () => {
+    searchState.query = input.value;
+    runSearch();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      nextMatch(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearchBar();
+    }
+  });
+  caseBtn.addEventListener("click", () => {
+    searchState.caseSensitive = !searchState.caseSensitive;
+    caseBtn.classList.toggle("active", searchState.caseSensitive);
+    runSearch();
+  });
+  regexBtn.addEventListener("click", () => {
+    searchState.regex = !searchState.regex;
+    regexBtn.classList.toggle("active", searchState.regex);
+    runSearch();
+  });
+  document.getElementById("search-prev").addEventListener("click", () => nextMatch(-1));
+  document.getElementById("search-next").addEventListener("click", () => nextMatch(1));
+  document.getElementById("search-close").addEventListener("click", closeSearchBar);
+}
 
 // Button click + check for file opened via Finder on launch
 window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("open-btn").addEventListener("click", openFileDialog);
-  document.getElementById("save-btn").addEventListener("click", saveFileAs);
-  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+  document.getElementById("save-btn").addEventListener("click", saveFile);
+  document.getElementById("mode-btn").addEventListener("click", cycleViewMode);
   document.getElementById("zoom-in-btn").addEventListener("click", zoomIn);
   document.getElementById("zoom-out-btn").addEventListener("click", zoomOut);
-  applyTheme();
+  setupSplitter();
+  setupSearch();
+  applyViewMode(viewMode);
   updateSaveButton();
 
   // Check immediately, then retry after delays to catch late-arriving Opened events
