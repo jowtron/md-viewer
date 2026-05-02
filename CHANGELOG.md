@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] — 2026-05-03
+
+### Added
+- **macOS QuickLook preview extension.** Spacebar on a `.md`/`.markdown` file
+  in Finder renders the document with the same `marked` parser and
+  GitHub-style CSS the app itself uses, follows the system light/dark setting,
+  and opens links in the default browser. Built as a sandboxed Swift
+  `QLPreviewingController` compiled by `swiftc` directly (no Xcode project),
+  with `marked` and `styles.css` inlined from `src/` at build time so there is
+  one source of truth. Embedded into `md-viewer.app/Contents/PlugIns/` by
+  `scripts/install-quicklook.sh`, which also patches the host `Info.plist`
+  with a `UTExportedTypeDeclarations` entry for `.mdx` and unregisters stale
+  duplicate copies. The CI release job builds and embeds the extension before
+  repackaging the DMG. Requires a real (Apple Development or Developer ID)
+  signing identity to load — ad-hoc-signed extensions are rejected by macOS at
+  activation time.
+
 ## [0.3.3] — 2026-04-21
 
 ### Added
@@ -81,6 +98,7 @@ All notable changes to this project are documented here. Format follows
   Finder double-click, and file associations for `.md`, `.markdown`,
   `.mdx`, and `.txt`.
 
+[0.3.4]: https://github.com/jowtron/md-viewer/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/jowtron/md-viewer/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/jowtron/md-viewer/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jowtron/md-viewer/compare/v0.3.0...v0.3.1

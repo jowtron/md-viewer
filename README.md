@@ -12,6 +12,8 @@ A simple, fast markdown viewer for macOS. Open `.md` files with a double-click, 
 - Adjustable zoom level (toolbar buttons or Cmd +/-)
 - Open files via the toolbar, File menu, drag-and-drop, or double-clicking in Finder
 - File associations for `.md`, `.markdown`, `.mdx`, and `.txt`
+- macOS QuickLook preview — hit spacebar on any `.md`/`.markdown` file in
+  Finder to see it rendered without opening the app
 
 ## Installation (macOS)
 
@@ -47,6 +49,13 @@ cd md-viewer
 npm install
 npm run tauri dev      # development
 npm run tauri build    # production .app bundle
+```
+
+To also build the macOS QuickLook extension and embed it into a built `.app`:
+
+```sh
+CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" \
+  ./scripts/install-quicklook.sh /Applications/md-viewer.app
 ```
 
 ## License

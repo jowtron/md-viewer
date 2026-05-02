@@ -41,6 +41,29 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build -- --target ${{ matrix.target }}
 
+      - name: Build & embed QuickLook extension
+        run: |
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/md-viewer.app"
+          case "${{ matrix.target }}" in
+            aarch64-*) ARCH=arm64  ;;
+            x86_64-*)  ARCH=x86_64 ;;
+          esac
+          ARCH="$ARCH" ./scripts/install-quicklook.sh "$APP"
+
+      - name: Repackage DMG with embedded extension
+        run: |
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/md-viewer.app"
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          VERSION=$(node -p "require('./package.json').version")
+          case "${{ matrix.target }}" in
+            aarch64-*) SUFFIX=aarch64 ;;
+            x86_64-*)  SUFFIX=x64     ;;
+          esac
+          rm -f "$DMG_DIR"/*.dmg
+          mkdir -p "$DMG_DIR"
+          hdiutil create -volname md-viewer -srcfolder "$APP" -ov -format UDZO \
+            "$DMG_DIR/md-viewer_${VERSION}_${SUFFIX}.dmg"
+
       - name: Upload DMG to Release
         uses: softprops/action-gh-release@v1
         with:
