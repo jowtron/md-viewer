@@ -38,10 +38,44 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
+      - name: Import macOS code signing certificate
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          # Skip if no cert is configured — the job will fall back to ad-hoc
+          # signing and the released DMG will require Gatekeeper trust on
+          # download.
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo "MACOS_CERT_P12_BASE64 is empty; skipping cert import (ad-hoc signing)."
+            exit 0
+          fi
+          # Create a temporary keychain that lives only for this job and import
+          # the .p12. The keychain password is randomly generated. `codesign`
+          # looks up identities across all unlocked keychains in the search
+          # list, so adding ours is enough.
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          P12_PATH="$RUNNER_TEMP/cert.p12"
+          echo -n "$MACOS_CERT_P12_BASE64" | base64 --decode -o "$P12_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -P "$MACOS_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          rm -f "$P12_PATH"
+
       - name: Build Tauri app
         run: npm run tauri build -- --target ${{ matrix.target }}
 
       - name: Build & embed QuickLook extension
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY || '-' }}
         run: |
           APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/md-viewer.app"
           case "${{ matrix.target }}" in
