@@ -21,9 +21,11 @@ plus a sandboxed Quick Look preview extension.
   given `md-viewer.app`, patches the host plist, re-signs, refreshes Launch
   Services, and unregisters stale duplicate registrations.
 - `.github/workflows/release.yml` — tag-triggered. Builds Tauri app for
-  macOS arm64 + x86_64, runs the Quick Look install script, repackages the
-  DMG with `hdiutil`, and uploads. Linux + Windows jobs are `continue-on-error`
-  and untested.
+  macOS arm64 + x86_64, signs with the Apple Development cert imported from
+  the `MACOS_CERT_P12_BASE64` / `MACOS_CERT_PASSWORD` / `MACOS_CODESIGN_IDENTITY`
+  repository secrets, runs the Quick Look install script, repackages the
+  DMG with `hdiutil`, and uploads. Linux + Windows jobs are
+  `continue-on-error` and untested.
 - `cm-entry.js` + `npm run build:cm` — esbuild the CodeMirror bundle when
   `cm-entry.js` or its deps change. Bundle is committed.
 
