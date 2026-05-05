@@ -19,6 +19,14 @@
     <div class="toolbar">
       <button id="open-btn">Open File</button>
       <button id="save-btn" disabled>Save</button>
+      <button id="save-as-btn" disabled title="Save As… (Cmd+Shift+S)">Save As…</button>
+      <button id="print-btn" class="icon-btn" disabled title="Print (Cmd+P)" aria-label="Print">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5V2h8v3" />
+          <rect x="2" y="5" width="12" height="7" rx="1" />
+          <rect x="4" y="9" width="8" height="5" />
+        </svg>
+      </button>
       <button id="mode-btn" class="mode-btn" title="Toggle view mode (Cmd+E)">Preview</button>
       <span id="filename"></span>
       <span style="margin-left:auto"></span>
@@ -34,6 +42,26 @@
       <button id="search-prev" title="Previous match (Shift+Enter)">▲</button>
       <button id="search-next" title="Next match (Enter)">▼</button>
       <button id="search-close" title="Close (Esc)">✕</button>
+    </div>
+    <div id="edit-toolbar" hidden>
+      <button data-md="bold" title="Bold (Cmd+B)"><b>B</b></button>
+      <button data-md="italic" title="Italic (Cmd+I)"><i>I</i></button>
+      <button data-md="strike" title="Strikethrough"><s>S</s></button>
+      <span class="md-sep"></span>
+      <button data-md="h1" title="Heading 1">H1</button>
+      <button data-md="h2" title="Heading 2">H2</button>
+      <button data-md="h3" title="Heading 3">H3</button>
+      <span class="md-sep"></span>
+      <button data-md="link" title="Link">Link</button>
+      <button data-md="code" title="Inline code">&lt;/&gt;</button>
+      <button data-md="codeblock" title="Code block">{ }</button>
+      <span class="md-sep"></span>
+      <button data-md="ul" title="Bullet list">• List</button>
+      <button data-md="ol" title="Numbered list">1. List</button>
+      <button data-md="quote" title="Blockquote">&gt; Quote</button>
+      <button data-md="hr" title="Horizontal rule">— HR</button>
+      <span class="md-sep"></span>
+      <button data-md="pagebreak" title="Page break (only visible when printing)">⤓ Page Break</button>
     </div>
     <div id="workspace" data-mode="preview">
       <div id="editor-pane"></div>

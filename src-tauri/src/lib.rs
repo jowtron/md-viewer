@@ -69,6 +69,11 @@ fn write_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, &contents).map_err(|e| format!("Failed to write {}: {}", path, e))
 }
 
+#[tauri::command]
+fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize the globals before anything else
@@ -79,7 +84,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_opened_file, open_in_new_window, read_file, write_file])
+        .invoke_handler(tauri::generate_handler![get_opened_file, open_in_new_window, read_file, write_file, print_page])
         .setup(|app| {
             // macOS: first submenu becomes the app menu
             let app_menu = SubmenuBuilder::new(app, "md-viewer")

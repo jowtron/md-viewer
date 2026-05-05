@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] — 2026-05-06
+
+### Added
+- **Save As and Print buttons in the toolbar.** Both were previously only
+  available from the File menu.
+- **Edit-mode formatting toolbar.** Visible in Editor and Split modes, with
+  buttons for bold / italic / strikethrough, headings (H1–H3), link, inline
+  code, fenced code block, lists, blockquote, horizontal rule, and page
+  break. Cmd+B / Cmd+I shortcuts work when the editor has focus.
+- **Page-break marker for printing.** Insert
+  `<div class="page-break"></div>` (or use the toolbar button) to force a
+  hard page break in printed output. On screen it shows as a thin labelled
+  rule; in print it disappears and the next content starts on a new page.
+
+### Changed
+- **Native print dialog instead of `window.print()`.** Print is now driven
+  through `WebviewWindow::print()` from a new `print_page` Tauri command,
+  which reliably opens the native macOS print dialog from both the menu
+  (Cmd+P) and the toolbar icon. The previous `window.print()` call was
+  silently ignored by Tauri's WKWebView.
+
+### Fixed
+- **Print no longer leaves a large empty area at the top of the first page.**
+  WKWebView's print operation didn't reliably re-flow layout from `@media
+  print` rules alone; layout overrides are now applied via a `body.printing`
+  class that is added before printing and removed after.
+- **Print no longer flashes the visible window to light mode.** The
+  `body.printing` class only changes layout — colors are still handled by
+  `@media print` so dark-mode `<code>` backgrounds don't briefly appear as
+  black bars over a forced-white body.
+- **No more spurious blank trailing page in print.** Bottom padding on the
+  content area was compounding with the last element's `margin-bottom` and
+  tipping content over the page boundary; both are now zeroed in print, and
+  a page-break placed as the last element no longer triggers a new page.
+
 ## [0.3.4] — 2026-05-03
 
 ### Added
@@ -98,6 +133,7 @@ All notable changes to this project are documented here. Format follows
   Finder double-click, and file associations for `.md`, `.markdown`,
   `.mdx`, and `.txt`.
 
+[0.3.5]: https://github.com/jowtron/md-viewer/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/jowtron/md-viewer/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/jowtron/md-viewer/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/jowtron/md-viewer/compare/v0.3.1...v0.3.2

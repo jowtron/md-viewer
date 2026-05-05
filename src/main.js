@@ -161,9 +161,14 @@ document.addEventListener("click", (e) => {
 
 function updateSaveButton() {
   const btn = document.getElementById("save-btn");
-  if (!btn) return;
-  btn.disabled = !currentRawText;
-  btn.textContent = isDirty ? "Save •" : "Save";
+  if (btn) {
+    btn.disabled = !currentRawText;
+    btn.textContent = isDirty ? "Save •" : "Save";
+  }
+  const saveAsBtn = document.getElementById("save-as-btn");
+  if (saveAsBtn) saveAsBtn.disabled = !currentRawText;
+  const printBtn = document.getElementById("print-btn");
+  if (printBtn) printBtn.disabled = !currentRawText;
 }
 
 // Open a file in a new window via Rust command
@@ -251,11 +256,24 @@ window.addEventListener("keydown", (e) => {
   if (e.metaKey && e.key === "f") { e.preventDefault(); openSearchBar(); }
 });
 
-function printDocument() {
+async function printDocument() {
   if (!currentRawText) return;
   clearTimeout(renderTimer);
   renderPreview(currentRawText);
-  window.print();
+  // Apply print layout via class — WKWebView's printOperation honors the
+  // current DOM/CSS state but doesn't reliably re-flow layout from @media
+  // print rules alone, so we make the layout changes for real, then revert.
+  document.body.classList.add("printing");
+  // Two rAFs so layout AND paint settle before the print snapshot is taken.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  try {
+    await invoke("print_page");
+  } catch (e) {
+    console.error("Print error:", e);
+    window.print();
+  } finally {
+    document.body.classList.remove("printing");
+  }
 }
 
 // Listen for menu events from Rust
@@ -471,6 +489,8 @@ function applyViewMode(mode) {
     ensureEditor();
     setTimeout(() => editorView && editorView.requestMeasure(), 0);
   }
+  const editToolbar = document.getElementById("edit-toolbar");
+  if (editToolbar) editToolbar.hidden = mode === "preview";
   restoreSourceLine(prevLine);
 }
 
@@ -776,15 +796,121 @@ function setupSearch() {
   document.getElementById("search-close").addEventListener("click", closeSearchBar);
 }
 
+// === Markdown insertion helpers (used by edit toolbar) ===
+function wrapSelection(open, close = open, placeholder = "") {
+  if (!editorView) return;
+  const { from, to } = editorView.state.selection.main;
+  const selected = editorView.state.sliceDoc(from, to);
+  const inner = selected || placeholder;
+  const insert = open + inner + close;
+  editorView.dispatch({
+    changes: { from, to, insert },
+    selection: selected
+      ? { anchor: from + open.length, head: from + open.length + inner.length }
+      : { anchor: from + open.length, head: from + open.length + placeholder.length },
+  });
+  editorView.focus();
+}
+
+function prefixCurrentLine(prefix) {
+  if (!editorView) return;
+  const { from } = editorView.state.selection.main;
+  const line = editorView.state.doc.lineAt(from);
+  const existing = line.text;
+  // If line already starts with the same prefix, toggle off
+  const stripped = existing.replace(/^(#{1,6}\s|>\s|-\s|\d+\.\s)/, "");
+  const newText = stripped.startsWith(prefix.trim() + " ") ? stripped : prefix + stripped;
+  editorView.dispatch({
+    changes: { from: line.from, to: line.to, insert: newText },
+    selection: { anchor: line.from + newText.length },
+  });
+  editorView.focus();
+}
+
+function insertBlock(text) {
+  if (!editorView) return;
+  const { from } = editorView.state.selection.main;
+  const doc = editorView.state.doc;
+  const line = doc.lineAt(from);
+  // Move to end of current line, then insert with surrounding blank lines
+  const insertPos = line.to;
+  const before = line.text.length > 0 ? "\n\n" : "\n";
+  const after = "\n\n";
+  const insert = before + text + after;
+  editorView.dispatch({
+    changes: { from: insertPos, to: insertPos, insert },
+    selection: { anchor: insertPos + insert.length },
+  });
+  editorView.focus();
+}
+
+function insertLink() {
+  if (!editorView) return;
+  const { from, to } = editorView.state.selection.main;
+  const selected = editorView.state.sliceDoc(from, to);
+  const text = selected || "link text";
+  const insert = `[${text}](https://)`;
+  // Place cursor inside the URL parentheses (after "https://")
+  const urlStart = from + text.length + 3; // [+text+](
+  editorView.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: urlStart, head: from + insert.length - 1 },
+  });
+  editorView.focus();
+}
+
+const mdActions = {
+  bold:      () => wrapSelection("**", "**", "bold text"),
+  italic:    () => wrapSelection("*", "*", "italic text"),
+  strike:    () => wrapSelection("~~", "~~", "struck text"),
+  h1:        () => prefixCurrentLine("# "),
+  h2:        () => prefixCurrentLine("## "),
+  h3:        () => prefixCurrentLine("### "),
+  link:      () => insertLink(),
+  code:      () => wrapSelection("`", "`", "code"),
+  codeblock: () => insertBlock("```\ncode\n```"),
+  ul:        () => prefixCurrentLine("- "),
+  ol:        () => prefixCurrentLine("1. "),
+  quote:     () => prefixCurrentLine("> "),
+  hr:        () => insertBlock("---"),
+  pagebreak: () => insertBlock('<div class="page-break"></div>'),
+};
+
+function setupEditToolbar() {
+  const bar = document.getElementById("edit-toolbar");
+  if (!bar) return;
+  bar.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-md]");
+    if (!btn) return;
+    const action = mdActions[btn.dataset.md];
+    if (!action) return;
+    if (!editorView) ensureEditor();
+    action();
+  });
+}
+
+// Cmd+B / Cmd+I shortcuts when editor is focused
+window.addEventListener("keydown", (e) => {
+  if (!editorView || viewMode === "preview") return;
+  if (!editorView.hasFocus) return;
+  if (e.metaKey && !e.shiftKey && !e.altKey) {
+    if (e.key === "b") { e.preventDefault(); mdActions.bold(); }
+    else if (e.key === "i") { e.preventDefault(); mdActions.italic(); }
+  }
+});
+
 // Button click + check for file opened via Finder on launch
 window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("open-btn").addEventListener("click", openFileDialog);
   document.getElementById("save-btn").addEventListener("click", saveFile);
+  document.getElementById("save-as-btn").addEventListener("click", saveFileAs);
+  document.getElementById("print-btn").addEventListener("click", printDocument);
   document.getElementById("mode-btn").addEventListener("click", cycleViewMode);
   document.getElementById("zoom-in-btn").addEventListener("click", zoomIn);
   document.getElementById("zoom-out-btn").addEventListener("click", zoomOut);
   setupSplitter();
   setupSearch();
+  setupEditToolbar();
   applyViewMode(viewMode);
   updateSaveButton();
 

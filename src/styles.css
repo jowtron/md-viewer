@@ -104,6 +104,13 @@ body {
   color: var(--text);
 }
 
+.toolbar button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+}
+
 #theme-toggle {
   background: none;
   color: var(--toggle-color);
@@ -211,6 +218,116 @@ body {
 .mode-btn:hover {
   color: var(--text) !important;
   border-color: var(--text) !important;
+}
+
+/* Edit toolbar — only visible in editor / split modes */
+#edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#edit-toolbar[hidden] {
+  display: none;
+}
+
+#edit-toolbar button {
+  padding: 3px 8px;
+  background: none;
+  color: var(--toggle-color);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  min-width: 28px;
+}
+
+#edit-toolbar button:hover {
+  color: var(--text);
+  border-color: var(--toolbar-border);
+}
+
+#edit-toolbar .md-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--toolbar-border);
+  margin: 4px 4px;
+}
+
+/* Page break marker — invisible on screen, real page break in print */
+.page-break {
+  display: block;
+  height: 0;
+  border-top: 1px dashed var(--toolbar-border);
+  margin: 16px 0;
+  position: relative;
+}
+
+.page-break::before {
+  content: "page break";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg);
+  color: var(--toggle-color);
+  font-size: 10px;
+  padding: 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* `:not(:last-child)` ensures a page break at the very end of the document
+   doesn't trigger a blank trailing page. */
+@media print {
+  .page-break:not(:last-child),
+  .markdown-body section:has(> .page-break):not(:last-child) {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .page-break {
+    border: none !important;
+    margin: 0 !important;
+    height: 0 !important;
+  }
+  .page-break::before { display: none !important; }
+
+  /* Strip trailing margin/padding that would push the last block over a
+     page boundary and produce a blank trailing page. */
+  .markdown-body > section:last-child,
+  .markdown-body > section:last-child > *:last-child,
+  .markdown-body > *:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
+
+body.printing .page-break:not(:last-child),
+body.printing .markdown-body section:has(> .page-break):not(:last-child) {
+  page-break-after: always !important;
+  break-after: page !important;
+}
+
+body.printing .page-break {
+  border: none !important;
+  margin: 0 !important;
+  height: 0 !important;
+}
+
+body.printing .page-break::before { display: none !important; }
+
+body.printing .markdown-body > section:last-child,
+body.printing .markdown-body > section:last-child > *:last-child,
+body.printing .markdown-body > *:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 /* Search bar */
@@ -393,12 +510,60 @@ body.drag-over #workspace {
   margin: 24px 0;
 }
 
-/* Print styles — force light theme, hide chrome, paginate cleanly */
-@media print {
-  @page {
-    margin: 2cm;
-  }
+/* Print styles — force light theme, hide chrome, paginate cleanly.
+   Layout overrides are applied via a `body.printing` class so we don't have
+   to rely on WKWebView's printOperation re-evaluating @media print on every
+   layout-affecting rule (it doesn't, reliably). The visual styling that DOES
+   work via @media print (colors, page-break hints, link href printing) lives
+   inside the @media print block at the bottom. */
+@page {
+  margin: 0;
+}
 
+body.printing .toolbar,
+body.printing #search-bar,
+body.printing #editor-pane,
+body.printing #splitter {
+  display: none !important;
+}
+
+/* Layout-only — colors are handled by @media print so we don't flash a
+   light-themed page on top of the user's visible window during the print
+   snapshot. */
+body.printing,
+body.printing html {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.printing #workspace {
+  display: block !important;
+  overflow: visible !important;
+  flex: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  background: none !important;
+  outline: none !important;
+}
+
+body.printing #content {
+  display: block !important;
+  overflow: visible !important;
+  /* No bottom padding — last element ends naturally; @page bottom comes from
+     the printer driver / @page rules. Bottom padding here would compound with
+     last-element margin and overflow into a blank trailing page. */
+  padding: 1.5cm 2cm 0 2cm !important;
+  margin: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  flex: none !important;
+}
+
+@media print {
   /* Force light colors regardless of theme */
   :root, [data-theme="dark"] {
     --bg: #ffffff;
@@ -411,28 +576,34 @@ body.drag-over #workspace {
     --th-bg: #f6f8fa;
   }
 
+  /* Mirror of .printing rules above so window.print() (fallback path) also works */
   html, body {
     background: #ffffff !important;
     color: #1f2328 !important;
     height: auto !important;
+    min-height: 0 !important;
     overflow: visible !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
-
-  /* Hide everything that isn't the rendered content */
-  .toolbar { display: none !important; }
-  #editor-pane, #splitter { display: none !important; }
+  .toolbar, #search-bar, #editor-pane, #splitter { display: none !important; }
   body.drag-over #workspace { background: none !important; outline: none !important; }
-
   #workspace {
     display: block !important;
     overflow: visible !important;
+    flex: none !important;
+    height: auto !important;
+    min-height: 0 !important;
   }
-
   #content {
     display: block !important;
     overflow: visible !important;
-    padding: 0 !important;
+    padding: 1.5cm 2cm 0 2cm !important;
+    margin: 0 !important;
     width: 100% !important;
+    height: auto !important;
+    flex: none !important;
     font-size: 11pt;
   }
 
